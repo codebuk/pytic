@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 
-   tic
+   pytic
 
    Copyright 2014 2018 Dan Tyrrell
 
