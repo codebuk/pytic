@@ -18,7 +18,7 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-   Class for the tic steper drivers.
+   Class for the tic stepper drivers.
 
     #basic comms
 
@@ -234,7 +234,7 @@ TIC_CMD_REINITIALIZE = 0x10
 TIC_CMD_START_BOOTLOADER = 0xFF
 TIC_CMD_GET_DEBUG_DATA = 0x20
 
-#offsets/indexes
+# offsets/indexes
 TIC_VAR_OPERATION_STATE = 0x00
 TIC_VAR_MISC_FLAGS1 = 0x01
 TIC_VAR_ERROR_STATUS = 0x02
@@ -271,7 +271,7 @@ TIC_VAR_INPUT_AFTER_SCALING = 0x51
 
 TIC_VARIABLES_SIZE = 0x55
 
-#indexes
+# indexes
 TIC_SETTING_NOT_INITIALIZED = 0x00
 TIC_SETTING_CONTROL_MODE = 0x01
 TIC_SETTING_NEVER_SLEEP = 0x02
@@ -332,17 +332,18 @@ TIC_INPUT_NULL = 0xFFFF
 TIC_CONTROL_PIN_COUNT = 5
 
 
-
 class TicError(Exception):
     pass
+
 
 class TicDevice:
     # Encapsulates the logic to control a tic stepper driver
     def __init__(self):
-        #self.is_busy = True
+        # self.is_busy = True
         self.timeout = None
-        self.version =  None
-        #self.log_debug = True
+        self.version = None
+        self.serial = None
+        # self.log_debug = True
         self.dev = None
         self.err = None
         self.cfg = None
@@ -351,28 +352,26 @@ class TicDevice:
         log.debug("tic init complete")
 
     def close(self):
-        self.dev = None;
+        self.dev = None
         self.init_defaults()
 
     def init_defaults(self):
         self.timeout = 1000
-        self.version =  None
+        self.version = None
         self.serial = None
-        self.log_debug = True
         self.dev = None
         self.err = None
         self.cfg = None
         self.intf = None
 
-
     def open(self, product, serial=None, vendor=0xffb):
 
         devices = usb.core.find(find_all=True, idVendor=vendor, idProduct=product)
         for device in devices:
-            log.debug (device.serial_number)
-            if serial == None or device.serial_number == serial:
+            log.debug(device.serial_number)
+            if serial is None or device.serial_number == serial:
                 self.dev = device
-                exit #we take the first unit that matches if no serial number supplied
+                exit  # we take the first unit that matches if no serial number supplied
 
         if self.dev is None:
             raise TicError('tic device not found.')
@@ -380,168 +379,163 @@ class TicDevice:
             log.debug("tic open complete. Serial:" + self.dev.serial_number)
 
         self.dev.set_configuration()
-        self.cfg=self.dev[0]
-        self.intf=self.cfg[(0,0)]
+        self.cfg = self.dev[0]
+        self.intf = self.cfg[(0, 0)]
         self.serial = self.dev.serial_number
 
-#Could you please activate the PYUSB_DEBUG=debug and LIBUSB_DEBUG=3
-#environment variables and send the output?
-#Sorry for the delay. According to libusb documentation, a pipe error
-#is related to sending a control request not supported by the device.
-#3Are these control transfers documented by the manufacturer or part of
-#3the USB class spec?
+    # Could you please activate the PYUSB_DEBUG=debug and LIBUSB_DEBUG=3
+    # environment variables and send the output?
+    # Sorry for the delay. According to libusb documentation, a pipe error
+    # is related to sending a control request not supported by the device.
+    # 3Are these control transfers documented by the manufacturer or part of
+    # 3the USB class spec?
 
-    #the defaults work for the majority of tic commands
-    def transfer (self, request_type = 0x40, request = 0, value = 0, index = 0, data_or_length = 0, timeout = None , msg=""):
-        if self.dev == None:
-            raise TicError ("Device not connected")
-        log.debug ("tic" + self.serial + " - " + msg + " Req:" + hex(request) + " Val:" + str (value) + " Ind:" + str(index))
-        if timeout == None:
+    # the defaults work for the majority of tic commands
+    def transfer(self, request_type=0x40, request=0, value=0, index=0, data_or_length=0, timeout=None, msg=""):
+        if self.dev is None:
+            raise TicError("Device not connected")
+        log.debug(
+            "tic" + self.serial + " - " + msg + " Req:" + hex(request) + " Val:" + str(value) + " Ind:" + str(index))
+        if timeout is None:
             timeout = self.timeout
         try:
             self.dev.ctrl_transfer(bmRequestType=request_type,
-                                    bRequest=request,
-                                    wValue=value,
-                                    wIndex=index,
-                                    data_or_wLength=data_or_length,
-                                    timeout=timeout)
+                                   bRequest=request,
+                                   wValue=value,
+                                   wIndex=index,
+                                   data_or_wLength=data_or_length,
+                                   timeout=timeout)
         except:
-            log.error (msg)
+            log.error(msg)
             pass
 
-
-    def transfer_quick (self, cmd, msg=""):
+    def transfer_quick(self, cmd, msg=""):
         self.transfer(request=cmd, msg=msg)
 
-    def transfer_7bit (self, cmd, data, msg=""):
-        #7-bit write command
-        self.transfer( request=cmd, value=data, msg=msg)
+    def transfer_7bit(self, cmd, data, msg=""):
+        # 7-bit write command
+        self.transfer(request=cmd, value=data, msg=msg)
 
-    def transfer_32bit (self, cmd, data, msg=""):
-        #32-bit write command
-        #todo validate
+    def transfer_32bit(self, cmd, data, msg=""):
+        # 32-bit write command
+        # todo validate
         value = data & 0xFFFF
         index = data >> 16 & 0xFFFF
-        self.transfer( request=cmd, value=value, index=index, msg=msg)
+        self.transfer(request=cmd, value=value, index=index, msg=msg)
 
-    def transfer_block (self, cmd, data, msg=""):
+    def transfer_block(self, cmd, data, msg=""):
         transfer(bmRequestType=40, bRequest=cmd, wValue=value, wIndex=index, data_or_wLength=None, timeout=self.timeout)
-        #Block read command: reads a block of data from the Tic; the block starts from the specified offset and can have a variable length
+        # reads a block of data from the Tic; the block starts from the specified offset and can have a variable length
 
-    #thin wrappers around the USB access code
+    # thin wrappers around the USB access code
     def x_set_setting_byte(self, address, byte):
-        self.transfer( request=TIC_CMD_SET_SETTING, value=address, index=byte, msg="applying settings")
+        self.transfer(request=TIC_CMD_SET_SETTING, value=address, index=byte, msg="applying settings")
 
-    def x_tic_get_setting_segment(self,index, length, output):
-        assert(handle != None);
-        assert(output != None);
-        #assert(length && length <= TIC_MAX_USB_RESPONSE_SIZE);
-        #size_t transferred;
-        #elf.transfer(self.handle, 0xC0, TIC_CMD_GET_SETTING, 0, index, output, length, &transferred));
-        #if (transferred != length) raise TicError ( "Failed to read settings.  Expected %u bytes, got %u.\n", (unsigned int)length, (unsigned int)transferred);
-        #return None;
+    def x_tic_get_setting_segment(self, index, length, output):
+        assert (handle is not None)
+        assert (output is not None)
+        # assert(length && length <= TIC_MAX_USB_RESPONSE_SIZE);
+        # size_t transferred;
+        # elf.transfer(self.handle, 0xC0, TIC_CMD_GET_SETTING, 0, index, output, length, &transferred));
+        # if (transferred != length) raise TicError ( "Failed to read settings.  Expected %u bytes, got %u.\n",
+        # (unsigned int)length, (unsigned int)transferred);
+        # return None;
 
-
-
-    #usb tic commands - anything issued via a tic command is volatile
+    # usb tic commands - anything issued via a tic command is volatile
 
     def reinitialize(self):
-        self.transfer_quick (TIC_CMD_REINITIALIZE,
-                             msg = "reinitializing the device.")
+        self.transfer_quick(TIC_CMD_REINITIALIZE,
+                            msg="reinitializing the device.")
 
     def start_bootloader(self):
         self.transfer_quick(TIC_CMD_START_BOOTLOADER,
-                            msg = "starting the bootloader.")
+                            msg="starting the bootloader.")
 
     def set_target_position(self, position):
         self.transfer_32bit(TIC_CMD_SET_TARGET_POSITION,
                             position,
-                            msg = "setting the target position.")
+                            msg="setting the target position.")
 
     def set_target_velocity(self, velocity):
         self.transfer_32bit(TIC_CMD_SET_TARGET_VELOCITY,
                             velocity,
-                            msg = "setting the target velocity.")
+                            msg="setting the target velocity.")
 
     def halt_and_set_position(self, position):
         self.transfer_32bit(TIC_CMD_HALT_AND_SET_POSITION,
                             position,
-                            msg = "halting and setting the position.")
+                            msg="halting and setting the position.")
 
     def halt_and_hold(self):
         self.transfer_quick(TIC_CMD_HALT_AND_HOLD,
-                            msg =  "halting.")
+                            msg="halting.")
 
     def reset_command_timeout(self):
         self.transfer_quick(TIC_CMD_RESET_COMMAND_TIMEOUT,
-                            msg =  "resetting the command timeout.")
+                            msg="resetting the command timeout.")
 
     def deenergize(self):
         self.transfer_quick(TIC_CMD_DEENERGIZE,
-                            msg =  "deenergizing.")
+                            msg="deenergizing.")
 
     def energize(self):
-         self.transfer_quick(TIC_CMD_ENERGIZE,
-                             msg =  "energizing.")
+        self.transfer_quick(TIC_CMD_ENERGIZE,
+                            msg="energizing.")
 
     def exit_safe_start(self):
         self.transfer_quick(TIC_CMD_EXIT_SAFE_START,
-                            msg =  "exiting safe start.")
+                            msg="exiting safe start.")
 
     def enter_safe_start(self):
         self.transfer_quick(TIC_CMD_ENTER_SAFE_START,
-                            msg = "entering safe start.")
+                            msg="entering safe start.")
 
     def reset(self):
         self.transfer_quick(TIC_CMD_RESET,
-                            msg = "sending the Reset command.")
+                            msg="sending the Reset command.")
 
     def clear_driver_error(self):
         self.transfer_quick(TIC_CMD_CLEAR_DRIVER_ERROR,
-                            msg =  "clearing the driver error.")
+                            msg="clearing the driver error.")
 
     def set_max_speed(self, max_speed):
         self.transfer_32bit(TIC_CMD_SET_MAX_SPEED,
                             max_speed,
-                            msg =  "setting the maximum speed.")
+                            msg="setting the maximum speed.")
 
     def set_starting_speed(self, starting_speed):
         self.transfer_32bit(TIC_CMD_SET_STARTING_SPEED,
                             starting_speed,
-                            msg =  "setting the starting speed.")
+                            msg="setting the starting speed.")
 
     def set_max_accel(self, max_accel):
-        self.transfer_32bit( TIC_CMD_SET_MAX_ACCEL,
-                             max_accel,
-                             msg =  "setting the maximum acceleration.")
+        self.transfer_32bit(TIC_CMD_SET_MAX_ACCEL,
+                            max_accel,
+                            msg="setting the maximum acceleration.")
 
     def set_max_decel(self, max_decel):
-        self.transfer_32bit( TIC_CMD_SET_MAX_DECEL,
-                             max_decel,
-                             msg =  "setting the maximum deceleration.")
+        self.transfer_32bit(TIC_CMD_SET_MAX_DECEL,
+                            max_decel,
+                            msg="setting the maximum deceleration.")
 
     def set_step_mode(self, step_mode):
-        self.transfer_7bit (TIC_CMD_SET_STEP_MODE,
-                            step_mode,
-                            "setting the step mode.")
+        self.transfer_7bit(TIC_CMD_SET_STEP_MODE,
+                           step_mode,
+                           "setting the step mode.")
 
     def set_decay_mode(self, decay_mode):
-        self.transfer_7bit (TIC_CMD_SET_DECAY_MODE,
+        self.transfer_7bit(TIC_CMD_SET_DECAY_MODE,
                            decay_mode,
-                           msg = "setting the decay mode.")
+                           msg="setting the decay mode.")
 
     def set_current_limit(self, value):
         milliamps = round(value / TIC_CURRENT_LIMIT_UNITS_MA)
-        self.transfer_7bit (TIC_CMD_SET_CURRENT_LIMIT,
-                            milliamps,
-                            msg = "setting the current limit.")
+        self.transfer_7bit(TIC_CMD_SET_CURRENT_LIMIT,
+                           milliamps,
+                           msg="setting the current limit.")
 
     def get_firmware_version_string(self):
-        log.debug ("fuck")
+        log.debug("fuck")
         # Initial part, e.g. "99.99": up to 5 bytes
         # Modification string: up to 127 bytes
         # Null terminator: 1 byte
-
-
-
-
