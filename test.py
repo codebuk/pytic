@@ -4,7 +4,8 @@ import time
 if __name__ == '__main__':
 
     tic = TicDevice()
-    tic.open(vendor=0x1ffb, product=0x00b3)
+    #tic.open(vendor=0x1ffb, product=0x00b3)
+    tic.open(vendor=0x1ffb, product=0x00bd, serial = "00218293")
 
     #quick test
     tic.reset()

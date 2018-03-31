@@ -365,22 +365,24 @@ class TicDevice:
         self.intf = None
 
 
-    def open(self, product, serial=None, vendor=0xffb,):
-        # find our device
-        self.dev = usb.core.find(idVendor=vendor, idProduct=product)
+    def open(self, product, serial=None, vendor=0xffb):
+
+        devices = usb.core.find(find_all=True, idVendor=vendor, idProduct=product)
+        for device in devices:
+            log.debug (device.serial_number)
+            if serial == None or device.serial_number == serial:
+                self.dev = device
+                exit #we take the first unit that matches if no serial number supplied
 
         if self.dev is None:
-            raise TicError('Device not found')
+            raise TicError('tic device not found.')
         else:
-            log.debug("tic open complete")
+            log.debug("tic open complete. Serial:" + self.dev.serial_number)
 
         self.dev.set_configuration()
         self.cfg=self.dev[0]
         self.intf=self.cfg[(0,0)]
         self.serial = self.dev.serial_number
-
-
-
 
 #Could you please activate the PYUSB_DEBUG=debug and LIBUSB_DEBUG=3
 #environment variables and send the output?
@@ -431,14 +433,13 @@ class TicDevice:
         self.transfer( request=TIC_CMD_SET_SETTING, value=address, index=byte, msg="applying settings")
 
     def x_tic_get_setting_segment(self,index, length, output):
-    assert(handle != None);
-    assert(output != None);
-    assert(length && length <= TIC_MAX_USB_RESPONSE_SIZE);
-    size_t transferred;
-    self.transfer(self.handle, 0xC0, TIC_CMD_GET_SETTING, 0, index, output, length, &transferred));
-
-    #if (transferred != length) raise TicError ( "Failed to read settings.  Expected %u bytes, got %u.\n", (unsigned int)length, (unsigned int)transferred);
-    #return None;
+        assert(handle != None);
+        assert(output != None);
+        #assert(length && length <= TIC_MAX_USB_RESPONSE_SIZE);
+        #size_t transferred;
+        #elf.transfer(self.handle, 0xC0, TIC_CMD_GET_SETTING, 0, index, output, length, &transferred));
+        #if (transferred != length) raise TicError ( "Failed to read settings.  Expected %u bytes, got %u.\n", (unsigned int)length, (unsigned int)transferred);
+        #return None;
 
 
 
