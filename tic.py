@@ -27,11 +27,18 @@
     # change the settings
 """
 
+
 import usb.core
 import usb.util
 import usb.control
 import logging
-from struct import *
+import time
+#from struct import *
+
+
+
+
+
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s.%(msecs)d-%(name)s-%(threadName)s-%(levelname)s %(message)s',
@@ -320,6 +327,81 @@ TIC_REQUEST_FIRMWARE_VERSION =  usb.util.CTRL_IN | usb.util.CTRL_TYPE_STANDARD |
 #
 TIC_REQUEST_VARIABLES = usb.util.CTRL_IN | usb.util.CTRL_TYPE_VENDOR | usb.util.CTRL_RECIPIENT_DEVICE
 
+ERROR_NAMES = {}
+ERROR_NAMES[TIC_ERROR_INTENTIONALLY_DEENERGIZED] = "Intentionally de-energized"
+ERROR_NAMES[TIC_ERROR_MOTOR_DRIVER_ERROR] = "Motor driver error"
+ERROR_NAMES[TIC_ERROR_LOW_VIN] = "Low VIN"
+ERROR_NAMES[TIC_ERROR_KILL_SWITCH] = "Kill switch active"
+ERROR_NAMES[TIC_ERROR_REQUIRED_INPUT_INVALID] = "Required input invalid"
+ERROR_NAMES[TIC_ERROR_SERIAL_ERROR] = "Serial error"
+ERROR_NAMES[TIC_ERROR_COMMAND_TIMEOUT] = "Command timeout"
+ERROR_NAMES[TIC_ERROR_SAFE_START_VIOLATION] = "Safe start violation"
+ERROR_NAMES[TIC_ERROR_ERR_LINE_HIGH] = "ERR line high"
+ERROR_NAMES[TIC_ERROR_SERIAL_FRAMING] = "Serial framing"
+ERROR_NAMES[TIC_ERROR_SERIAL_RX_OVERRUN] = "Serial RX overrun"
+ERROR_NAMES[TIC_ERROR_SERIAL_FORMAT] = "Serial format"
+ERROR_NAMES[TIC_ERROR_SERIAL_CRC] = "Serial CRC"
+ERROR_NAMES[TIC_ERROR_ENCODER_SKIP] = "Encoder skip"
+
+TIC03A_CURRENT_TABLE = \
+    [
+      0,
+      1,
+      174,
+      343,
+      495,
+      634,
+      762,
+      880,
+      990,
+      1092,
+      1189,
+      1281,
+      1368,
+      1452,
+      1532,
+      1611,
+      1687,
+      1762,
+      1835,
+      1909,
+      1982,
+      2056,
+      2131,
+      2207,
+      2285,
+      2366,
+      2451,
+      2540,
+      2634,
+      2734,
+      2843,
+      2962,
+      3093
+    ]
+
+TIC03A_RECOMMENDED_CODES = \
+    [
+    0,   1,   2,   3,   4,   5,   6,   7,
+    8,   9,   10,  11,  12,  13,  14,  15,
+    16,  17,  18,  19,  20,  21,  22,  23,
+    24,  25,  26,  27,  28,  29,  30,  31,
+    32,
+    ]
+
+TIC01A_RECOMMENDED_CODES = \
+    [
+    0,   1,   2,   3,   4,   5,   6,   7,
+    8,   9,   10,  11,  12,  13,  14,  15,
+    16,  17,  18,  19,  20,  21,  22,  23,
+    24,  25,  26,  27,  28,  29,  30,  31,
+    32,  34,  36,  38,  40,  42,  44,  46,
+    48,  50,  52,  54,  56,  58,  60,  62,
+    64,  68,  72,  76,  80,  84,  88,  92,
+    96,  100, 104, 108, 112, 116, 120, 124,
+    ]
+
+
 class TicError(Exception):
     pass
 
@@ -330,12 +412,15 @@ class TicDevice:
         self.timeout = None
         self.version = None
         self.serial = None
+        self.product = None
+        self.current_table = None
+        self.current_table_max = None
         self.dev = None
         self.cfg = None
         self.intf = None
+        self.poll_period = .01
         self.variables={}
         self.init_defaults()
-        log.debug("tic init complete")
 
     def close(self):
         self.dev = None
@@ -345,15 +430,15 @@ class TicDevice:
         self.timeout = 1000
         self.version = None
         self.serial = None
+        self.product = None
         self.dev = None
         self.cfg = None
         self.intf = None
 
-    def open(self, product, serial=None, vendor=0xffb):
-        log.debug (hex(TIC_REQUEST_FIRMWARE_VERSION))
-        devices = usb.core.find(find_all=True, idVendor=vendor, idProduct=product)
+    def open(self, product_id, serial=None, vendor=0xffb):
+        self.init_defaults()
+        devices = usb.core.find(find_all=True, idVendor=vendor, idProduct=product_id)
         for device in devices:
-            log.debug(device.serial_number)
             if serial is None or device.serial_number == serial:
                 self.dev = device
                 exit  # we take the first unit that matches if no serial number supplied
@@ -371,10 +456,9 @@ class TicDevice:
             self.dev.set_configuration()
             self.cfg = self.dev[0]
             self.intf = self.cfg[(0, 0)]
+            self.product_id = product_id
+            self.current_defaults_for_product()
 
-
-
-    # the defaults work for the majority of tic commands
     def transfer(self, request_type=TIC_REQUESTTYPE_CMD, request=0, value=0, index=0, data_or_length=0, timeout=None, msg=""):
         if self.dev is None:
             raise TicError("Device not connected")
@@ -406,7 +490,7 @@ class TicDevice:
         # reads a block of data from the Tic; the block starts from the specified offset and can have a variable length
 
     # thin wrappers around the USB access code
-    def x_set_setting_byte(self, address, byte):
+    def set_setting_byte(self, address, byte):
         self.transfer(request=TIC_CMD_SET_SETTING, value=address, index=byte, msg="applying settings")
 
     # usb tic commands - anything issued via a tic command is volatile
@@ -485,10 +569,10 @@ class TicDevice:
                       value = decay_mode,
                       msg="setting the decay mode.")
 
-    def set_current_limit(self, value):
-        milliamps = int(round(value / TIC_CURRENT_LIMIT_UNITS_MA))
+    def set_current_limit_code(self, value):
+        #directly send value - check code for correct values
         self.transfer(request=TIC_CMD_SET_CURRENT_LIMIT,
-                      value = milliamps,
+                      value = value,
                       msg="setting the current limit.")
 
     def get_firmware_mod_array(self):
@@ -503,15 +587,40 @@ class TicDevice:
             buffer = None
         return buffer
 
+    def wait_for_device_ready(self):
+        self.get_variables()
+        while self.variables ['operation_state'] != 10:
+            self.get_variables()
+            es = self.get_error_status(self.variables['error_status'])
+            log.debug ("op state:" + str(self.variables ['operation_state']) + " err:" + \
+                       str(self.variables ['error_status']) + " " + es )
+            time.sleep(self.poll_period)
+            ticdev.reset_command_timeout()
+        log.debug (str(self.variables ['operation_state']) + " err:" + \
+                       str(self.variables ['error_status'])
+                      )
+
     def wait_for_move_complete(self):
         self.get_variables()
+        while (self.variables ['operation_state'] == 10 and \
+            self.variables ['current_position'] != self.variables ['target_position'] ):
+            if self.variables ['input_state'] == 2:
+                break
+            if self.variables ['input_state'] == 1:
+                break
 
-        while self.variables ['operation_state'] != 10 or self.variables ['current_position'] != self.variables ['target_position'] :
-            self.get_variables()
-            log.debug (str(self.variables ['operation_state']) + " - " + \
-                       str(self.variables['error_status']) + " - " + \
-                       str(self.variables ['current_position']) + " - " + \
+            self.get_variables(  )
+            log.debug ("operation state:" + \
+                       str(self.variables ['operation_state']) + " input state:" + \
+                       str(self.variables ['input_state']) + " err:" + \
+                       str(self.variables ['error_status']) + " curr:" + \
+                       str(self.variables ['current_position']) + " tar:" + \
+                       str(self.variables ['target_position']) + " - " + \
                        str(self.variables ['current_velocity'])         )
+            if self.variables ['operation_state'] != 10:
+                raise
+            time.sleep(self.poll_period)
+            ticdev.reset_command_timeout()
 
     def get_status_variables (self, clear_errors = False):
         assert(TIC_VARIABLES_SIZE <= TIC_MAX_USB_RESPONSE_SIZE)
@@ -525,6 +634,14 @@ class TicDevice:
                                data_or_length =  TIC_VARIABLES_SIZE,
                                msg="getting variables.")
         self.parse_status_variables (buffer)
+
+    def get_error_status(self, val):
+        s = ""
+        for k, v in sorted(ERROR_NAMES.items()):
+            if ( 1 << k  & val):
+                s = s + str(v) + "(" + str(k) + ") "
+        return s
+
 
     def parse_status_variables (self, buffer):
         self.variables['operation_state'] = int.from_bytes (buffer [TIC_VAR_OPERATION_STATE:TIC_VAR_OPERATION_STATE+1],byteorder='little')
@@ -569,17 +686,163 @@ class TicDevice:
 
         #log.debug (self.variables['step_mode'])
         #for k, v in sorted(self.variables.items()):
-        #    log.debug ( k + " - " + str(v))
+                #    log.debug ( k + " - " + str(v))
+        '''
+        TIC_VAR_MISC_FLAGS1 = 0x01
+        TIC_VAR_ERROR_STATUS = 0x02
+        TIC_VAR_ERRORS_OCCURRED = 0x04
+        
+        TIC_VAR_ANALOG_READING_SCL = 0x3F
+        TIC_VAR_ANALOG_READING_SDA = 0x41
+        TIC_VAR_ANALOG_READING_TX = 0x43
+        TIC_VAR_ANALOG_READING_RX = 0x45
+        TIC_VAR_DIGITAL_READINGS = 0x47
+        TIC_VAR_PIN_STATES = 0x48
+        '''
+
+    def current_defaults_for_product( self):
+        if self.product_id ==  TIC_PRODUCT_ID_T500:
+            self.product = TIC_PRODUCT_T500
+            self.current_max = TIC_MAX_ALLOWED_CURRENT_T500
+            self.current_table = TIC03A_RECOMMENDED_CODES
+            self.current_table_count = len(TIC03A_CURRENT_TABLE)
+        elif self.product_id ==  TIC_PRODUCT_ID_T834:
+            # Some of the codes at the end of the table are too high; they violate
+            # TIC_MAX_ALLOWED_CURRENT_T834.  So just return a count lower than the
+            # actual number of items in the table.
+            self.product = TIC_PRODUCT_T834
+            self.current_max = TIC_MAX_ALLOWED_CURRENT_T834
+            self.current_table = TIC01A_RECOMMENDED_CODES
+            self.current_table_count = 60;
+        elif self.product_id == TIC_PRODUCT_ID_T825:
+            self.product = TIC_PRODUCT_T825
+            self.current_max = TIC_MAX_ALLOWED_CURRENT_T825
+            self.current_table_recomended = TIC01A_RECOMMENDED_CODES
+            self.current_table_recomended_count = len(TIC01A_RECOMMENDED_CODES)
+        else:
+            self.product = None
+            self.current_max = None
+            self.current_table = None
+            self.current_table_count = None
+
+    def current_limit_code_to_ma(self, code):
+        if self.product == TIC_PRODUCT_T500:
+            if code > TIC_MAX_ALLOWED_CURRENT_CODE_T500:
+                code = TIC_MAX_ALLOWED_CURRENT_CODE_T500
+            return TIC03A_CURRENT_TABLE[code]
+        else:
+            max = self.current_max / TIC_CURRENT_LIMIT_UNITS_MA
+            if code > max:
+                code = max
+            elif code > 64:
+                code = code * 4
+            elif code > 32:
+                code = code * 2
+            return code * TIC_CURRENT_LIMIT_UNITS_MA
+
+    def current_limit_ma_to_code(self, ma):
+        #   // Assumption: The table is an ascending order, so we want to return the last
+        #   // one that is less than or equal to the desired current.
+        #   // Assumption: 0 is a valid code and a good default to use.
+        code = 0;
+        for i in range (0 , self.current_table_recomended_count - 1):
+            recomended_current_code = self.current_table_recomended_count
+            table_ma = self.current_limit_code_to_ma(i)
+            if  table_ma <= ma:
+                code = i
+            else:
+                break
+        return code;
+
+    def code_test(self):
+        self.product_id = TIC_PRODUCT_ID_T500
+        self.current_defaults_for_product ()
+        code = self.current_limit_ma_to_code(1000)
+        log.debug ( str(TIC_PRODUCT_ID_T500) + " - " + str(code) + " - " + str(1000) )
+
+
+if __name__ == '__main__':
+
+
+    ticdev = TicDevice()
+    ticdev.code_test()
+    #ticdev.open(vendor=0x1ffb, product=0x00b3)
+    ticdev.open(vendor=0x1ffb, product_id=TIC_PRODUCT_ID_T500)
+    #, serial="00218293")
+
+    # quick test
+    ticdev.reset()
+    ticdev.reset_command_timeout()
+    ticdev.clear_driver_error()
+    ticdev.halt_and_set_position(0)
+    ticdev.set_current_limit_code(2)
+    ticdev.get_variables()
+    ticdev.set_max_speed(10000000)
+    ticdev.set_max_accel(200000)
+    ticdev.set_max_decel(200000)
+    ticdev.exit_safe_start()
+    ticdev.set_starting_speed(100)
+    ticdev.wait_for_device_ready()
+    ticdev.energize()
+    ticdev.wait_for_device_ready()
+    ticdev.set_target_position (-1650)
+    ticdev.wait_for_move_complete()
+    time.sleep(1.5)
+    ticdev.set_current_limit_code(2)
+    ticdev.wait_for_device_ready()
+    ticdev.set_target_position(-1550)
+    ticdev.wait_for_move_complete()
+    ticdev.halt_and_set_position(0)
+    #does not clear target postion
+    ticdev.wait_for_move_complete()
+    while True:
+        ticdev.set_target_position(400)
+        ticdev.set_current_limit_code(2)
+        ticdev.wait_for_move_complete()
+        ticdev.set_target_position(0)
+        ticdev.set_current_limit_code(4)
+        ticdev.wait_for_move_complete()
+
 
 '''
-TIC_VAR_MISC_FLAGS1 = 0x01
-TIC_VAR_ERROR_STATUS = 0x02
-TIC_VAR_ERRORS_OCCURRED = 0x04
 
-TIC_VAR_ANALOG_READING_SCL = 0x3F
-TIC_VAR_ANALOG_READING_SDA = 0x41
-TIC_VAR_ANALOG_READING_TX = 0x43
-TIC_VAR_ANALOG_READING_RX = 0x45
-TIC_VAR_DIGITAL_READINGS = 0x47
-TIC_VAR_PIN_STATES = 0x48
-'''
+    ticdev.halt_and_set_position(0)
+    time.sleep(1)
+    #v = ticdev.get_variables()
+    #log.debug (v)
+    #v= tic.get_firmware_mod_array()
+    #log.debug ("v:" + str(v))
+
+    ticdev.set_decay_mode(11)
+    ticdev.set_target_velocity(10000)
+    ticdev.set_target_position(-400)
+    time.sleep(.3)
+    ticdev.halt_and_hold()
+    ticdev.set_current_limit(4000)
+    time.sleep(.3)
+    ticdev.set_target_position(-400)
+    time.sleep(3)
+    ticdev.set_current_limit(2000)
+    ticdev.exit_safe_start()
+    ticdev.enter_safe_start()
+    ticdev.clear_driver_error()
+    ticdev.set_max_speed(100000)
+    ticdev.set_starting_speed(100)
+    ticdev.set_max_accel(100)
+    ticdev.set_max_decel(100)
+    ticdev.set_step_mode(1200)
+    ticdev.deenergize()
+    ticdev.reset_command_timeout()
+    ticdev.energize()
+    ticdev.set_current_limit(100)
+    #ticdev.reinitialize()
+    # no need for this - use ticgui
+    # ticdev.start_bootloader()
+
+    # ticdev.set_target_position(-400)
+    # ticdev.reset()
+    # ticdev.halt_and_set_position(4000)
+
+    # ticdev.deenergize()
+    # ticdev.set_target_position(-400)
+    '''

@@ -1,6 +1,5 @@
 from tic import *
 import time
-import constants
 
 if __name__ == '__main__':
     ticdev = TicDevice()
@@ -14,17 +13,16 @@ if __name__ == '__main__':
     #v= tic.get_firmware_mod_array()
     #log.debug ("v:" + str(v))
     ticdev.reset()
-
     ticdev.set_max_speed(20000000)
-    ticdev.set_max_accel(2000000)
-    ticdev.set_max_decel(8000000)
-
+    ticdev.set_max_accel(200000)
+    ticdev.set_max_decel(800000)
     ticdev.exit_safe_start()
+    #ticdev.set_decay_mode(constants.TIC_DECAY_MODE_T825_MIXED)
+    ticdev.set_current_limit(800)
+    ticdev.set_starting_speed(10)
+    ticdev.halt_and_set_position(0)
     ticdev.energize()
-    ticdev.set_decay_mode(constants.TIC_DECAY_MODE_T825_MIXED)
-    ticdev.set_current_limit(200)
-    ticdev.set_starting_speed(1000)
-    ticdev.set_target_position(-1650)
+    ticdev.set_target_position(-11650)
     ticdev.wait_for_move_complete()
     ticdev.set_current_limit(800)
     ticdev.halt_and_set_position(0)
@@ -35,14 +33,13 @@ if __name__ == '__main__':
     v = ticdev.get_variables()
     log.debug (v)
 
-
+'''
     while True:
-        ticdev.set_target_position(1500)
+        ticdev.set_target_position(1501)
         ticdev.wait_for_move_complete()
         ticdev.set_target_position(0)
         ticdev.wait_for_move_complete()
 
-    '''
     ticdev.set_decay_mode(11)
     ticdev.set_target_velocity(10000)
     ticdev.set_target_position(-400)
