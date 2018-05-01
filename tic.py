@@ -462,7 +462,7 @@ class TicDevice:
     def transfer(self, request_type=TIC_REQUESTTYPE_CMD, request=0, value=0, index=0, data_or_length=0, timeout=None, msg=""):
         if self.dev is None:
             raise TicError("Device not connected")
-        #log.debug("tic" + self.serial + " - " + msg + " Req:" + hex(request) + " Val:" + str(value) + " Ind:" + str(index))
+        log.debug("tic" + self.serial + " - " + msg + " Req:" + hex(request) + " Val:" + str(value) + " Ind:" + str(index))
         if timeout is None:
             timeout = self.timeout
         try:
@@ -620,7 +620,7 @@ class TicDevice:
             if self.variables ['operation_state'] != 10:
                 raise
             time.sleep(self.poll_period)
-            ticdev.reset_command_timeout()
+            #ticdev.reset_command_timeout()
 
     def get_status_variables (self, clear_errors = False):
         assert(TIC_VARIABLES_SIZE <= TIC_MAX_USB_RESPONSE_SIZE)
@@ -717,8 +717,8 @@ class TicDevice:
         elif self.product_id == TIC_PRODUCT_ID_T825:
             self.product = TIC_PRODUCT_T825
             self.current_max = TIC_MAX_ALLOWED_CURRENT_T825
-            self.current_table_recomended = TIC01A_RECOMMENDED_CODES
-            self.current_table_recomended_count = len(TIC01A_RECOMMENDED_CODES)
+            self.current_table = TIC01A_RECOMMENDED_CODES
+            self.current_table_count = len(TIC01A_RECOMMENDED_CODES)
         else:
             self.product = None
             self.current_max = None
@@ -745,8 +745,8 @@ class TicDevice:
         #   // one that is less than or equal to the desired current.
         #   // Assumption: 0 is a valid code and a good default to use.
         code = 0;
-        for i in range (0 , self.current_table_recomended_count - 1):
-            recomended_current_code = self.current_table_recomended_count
+        for i in range (0 , self.current_table_count - 1):
+            #recomended_current_code = self.current_table_recomended_count
             table_ma = self.current_limit_code_to_ma(i)
             if  table_ma <= ma:
                 code = i
@@ -760,11 +760,41 @@ class TicDevice:
         code = self.current_limit_ma_to_code(1000)
         log.debug ( str(TIC_PRODUCT_ID_T500) + " - " + str(code) + " - " + str(1000) )
 
+    def compute_ilim(self, dac_level):
+        v_iset = 0.9
+        v_dac_top = 4.096
+        r_top = 107000.0
+        r_bot = 33000.0
+
+        r_dac_top = (32 - dac_level) * 5000
+        r_dac_bot = dac_level * 5000
+
+        v_dacout = v_dac_top * r_dac_bot / (r_dac_bot + r_dac_top)
+        if dac_level == 0:
+            r_dacout = 0
+        else:
+            r_dacout = 1 / (1 / r_dac_top + 1 / r_dac_bot)
+
+        iset_current_sourced = (v_iset - v_dacout) / (r_top + r_dacout) + v_iset / r_bot
+
+        if iset_current_sourced < 0:
+            iset_current_sourced = 0
+
+        iset_current_sourced = iset_current_sourced * 86666
+        return iset_current_sourced
+
+    def log_ilim (self):
+        #puts "  0,"
+        #31.downto(0) do |dac_level|
+        #    puts "  %d," % [(compute_ilim(dac_level) * 1000).round]
+        for dac_level in range (31,-1, -1):
+            log.debug (str (dac_level) +"  --  " + str (self.compute_ilim(dac_level) * 1000))
 
 if __name__ == '__main__':
 
-
+    step_factor = 8
     ticdev = TicDevice()
+    ticdev.log_ilim()
     ticdev.code_test()
     #ticdev.open(vendor=0x1ffb, product=0x00b3)
     ticdev.open(vendor=0x1ffb, product_id=TIC_PRODUCT_ID_T500)
@@ -775,74 +805,34 @@ if __name__ == '__main__':
     ticdev.reset_command_timeout()
     ticdev.clear_driver_error()
     ticdev.halt_and_set_position(0)
-    ticdev.set_current_limit_code(2)
-    ticdev.get_variables()
-    ticdev.set_max_speed(10000000)
-    ticdev.set_max_accel(200000)
-    ticdev.set_max_decel(200000)
+    ticdev.set_current_limit_code(6)
+    ticdev.wait_for_device_ready()
+    #ticdev.get_variables()
+    ticdev.set_max_speed(12000000 * step_factor)
+    ticdev.set_max_accel(100000 * step_factor)
+    ticdev.set_max_decel(100000 * step_factor)
     ticdev.exit_safe_start()
-    ticdev.set_starting_speed(100)
+    ticdev.set_starting_speed(0)
     ticdev.wait_for_device_ready()
     ticdev.energize()
     ticdev.wait_for_device_ready()
-    ticdev.set_target_position (-1650)
+    ticdev.set_target_position (-1650 * step_factor)
     ticdev.wait_for_move_complete()
     time.sleep(1.5)
-    ticdev.set_current_limit_code(2)
-    ticdev.wait_for_device_ready()
-    ticdev.set_target_position(-1550)
+    #ticdev.set_current_limit_code(2)
+    #ticdev.wait_for_device_ready()
+    #move 100 step back out
+    ticdev.set_target_position(-1550 * step_factor )
     ticdev.wait_for_move_complete()
     ticdev.halt_and_set_position(0)
     #does not clear target postion
     ticdev.wait_for_move_complete()
     while True:
-        ticdev.set_target_position(400)
-        ticdev.set_current_limit_code(2)
+        ticdev.set_target_position(400 * step_factor)
+        #ticdev.set_current_limit_code(4)
         ticdev.wait_for_move_complete()
         ticdev.set_target_position(0)
-        ticdev.set_current_limit_code(4)
+        #ticdev.set_current_limit_code(4)
         ticdev.wait_for_move_complete()
 
 
-'''
-
-    ticdev.halt_and_set_position(0)
-    time.sleep(1)
-    #v = ticdev.get_variables()
-    #log.debug (v)
-    #v= tic.get_firmware_mod_array()
-    #log.debug ("v:" + str(v))
-
-    ticdev.set_decay_mode(11)
-    ticdev.set_target_velocity(10000)
-    ticdev.set_target_position(-400)
-    time.sleep(.3)
-    ticdev.halt_and_hold()
-    ticdev.set_current_limit(4000)
-    time.sleep(.3)
-    ticdev.set_target_position(-400)
-    time.sleep(3)
-    ticdev.set_current_limit(2000)
-    ticdev.exit_safe_start()
-    ticdev.enter_safe_start()
-    ticdev.clear_driver_error()
-    ticdev.set_max_speed(100000)
-    ticdev.set_starting_speed(100)
-    ticdev.set_max_accel(100)
-    ticdev.set_max_decel(100)
-    ticdev.set_step_mode(1200)
-    ticdev.deenergize()
-    ticdev.reset_command_timeout()
-    ticdev.energize()
-    ticdev.set_current_limit(100)
-    #ticdev.reinitialize()
-    # no need for this - use ticgui
-    # ticdev.start_bootloader()
-
-    # ticdev.set_target_position(-400)
-    # ticdev.reset()
-    # ticdev.halt_and_set_position(4000)
-
-    # ticdev.deenergize()
-    # ticdev.set_target_position(-400)
-    '''
