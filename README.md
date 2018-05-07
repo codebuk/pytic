@@ -1,5 +1,7 @@
 # pytic
 
+Proof of concept
+
 Python access to Pololu TIC stepper controllers
 
 ### Notes
