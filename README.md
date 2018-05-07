@@ -2,11 +2,13 @@
 
 Proof of concept
 
-Python access to Pololu TIC stepper controllers
+Pure Python access to Pololu TIC stepper controllers
 
 ### Notes
 
-
+Works on Windows or Linux
+Uses PyUSB and libusb 
+Easiest way to install drivers on Windows is to use Zadiag 
 
 ### References:
 
