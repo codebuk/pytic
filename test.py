@@ -1,3 +1,5 @@
+#no longer maintained
+
 from tic import *
 import time
 
